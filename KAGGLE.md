@@ -76,35 +76,44 @@ All three end up in the same state: repo at `/kaggle/working/selective-gating`,
 
 ## Path B — Kaggle CLI (re-pushable)
 
-Each notebook gets a `kernel-metadata.json`. From the repo root:
+The push layout is **generated** by `notebooks/generate_notebooks.py` (do not
+edit the metadata by hand — regenerate after changing configs):
 
-```bash
-# one metadata file per notebook, e.g. notebooks/00_kaggle_setup/kernel-metadata.json
-cat > notebooks/00_kaggle_setup/kernel-metadata.json <<'EOF'
-{
-  "id": "<you>/selgate-00-setup",
-  "title": "selgate-00-setup",
-  "code_file": "00_kaggle_setup.ipynb",
-  "kernel_type": "notebook",
-  "language": "python",
-  "is_private": true,
-  "enable_gpu": true,
-  "enable_internet": true,
-  "dataset_sources": ["<you>/lol-v1"],
-  "competition_sources": [],
-  "kernel_sources": []
-}
-EOF
-
-kaggle kernels init -p notebooks/00_kaggle_setup   # if you prefer the scaffold
-kaggle kernels push -p notebooks/00_kaggle_setup   # upload + start running
-kaggle kernels status <you>/selgate-00-setup       # poll until "complete"
-kaggle kernels output  <you>/selgate-00-setup -p ./kaggle_out   # fetch results
+```
+kaggle_push/
+├── selgate-00-setup/{00_kaggle_setup.ipynb, kernel-metadata.json}
+├── selgate-01-train/{01_train.ipynb,   kernel-metadata.json}
+└── selgate-02-evaluate/{02_evaluate.ipynb, kernel-metadata.json}
 ```
 
-Repeat for `01_train` and `02_evaluate` (same metadata shape, change
-`id`/`title`/`code_file`). Remember to edit `REPO_URL` inside each notebook
-before pushing.
+Each `kernel-metadata.json` is pre-filled:
+
+- `id`: `pkbbanzik/<slug>`  (edit `KAGGLE_USER` in the generator if needed)
+- `enable_gpu` / `enable_internet`: **true**
+- `dataset_sources`: `soumikrakshit/lol-dataset` (LOL-v1, verified
+  `our485`+`eval15` layout) and `zukniz/retinexformer-weights` (optional
+  backbone `LOL_v1.pth`)
+- `REPO_URL` is already baked into the notebook cells — regenerate after
+  changing `GH_USER` in the generator.
+
+Push from the repo root:
+
+```bash
+kaggle kernels push -p kaggle_push/selgate-00-setup   # upload + start run
+kaggle kernels status pkbbanzik/selgate-00-setup      # poll until complete
+kaggle kernels output  pkbbanzik/selgate-00-setup -p ./kaggle_out   # fetch results
+
+kaggle kernels push -p kaggle_push/selgate-01-train
+kaggle kernels status pkbbanzik/selgate-01-train
+kaggle kernels output  pkbbanzik/selgate-01-train -p ./kaggle_out
+
+kaggle kernels push -p kaggle_push/selgate-02-evaluate
+kaggle kernels status pkbbanzik/selgate-02-evaluate
+```
+
+Push `00` first and check its output (`SETUP OK`) before pushing `01`.
+Re-running `01` after code changes: just `git push` (GitHub) + `kaggle kernels push`
+again — the notebook does `git pull` at start.
 
 ---
 

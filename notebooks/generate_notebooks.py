@@ -1,10 +1,29 @@
 #!/usr/bin/env python3
-"""Generate the three Kaggle notebooks (kept in sync with scripts/)."""
+"""Generate the three Kaggle notebooks (kept in sync with scripts/).
+
+Also emits the Path-B push layout:  kaggle_push/<slug>/{*.ipynb, kernel-metadata.json}
+"""
 
 import json
 from pathlib import Path
 
 NB_DIR = Path(__file__).resolve().parent
+REPO_ROOT = NB_DIR.parent
+
+# ---- Path B configuration -------------------------------------------------
+GH_USER = "pranjalkole"
+REPO_URL = f"https://github.com/{GH_USER}/selective-gating.git"
+KAGGLE_USER = "pkbbanzik"
+DATASET_SOURCES = [
+    "soumikrakshit/lol-dataset",        # LOL-v1: lol_dataset/{our485,eval15}/{low,high}
+    "zukniz/retinexformer-weights",     # optional: official-style LOL_v1.pth backbone weights
+]
+# notebook filename -> (kernel slug, kernel title)
+KERNELS = {
+    "00_kaggle_setup.ipynb": ("selgate-00-setup", "selgate-00-setup"),
+    "01_train.ipynb": ("selgate-01-train", "selgate-01-train"),
+    "02_evaluate.ipynb": ("selgate-02-evaluate", "selgate-02-evaluate"),
+}
 
 
 def md(src):
@@ -22,6 +41,16 @@ def code(src):
 
 
 def write(name, cells):
+    # bake the real clone URL into the notebooks (Path B: no manual editing)
+    for c in cells:
+        if c["cell_type"] == "code":
+            c["source"] = [
+                ln.replace(
+                    'https://github.com/YOUR_GITHUB_USERNAME/selective-gating.git"  # <-- EDIT ME',
+                    REPO_URL + '"',
+                )
+                for ln in c["source"]
+            ]
     nb = {
         "cells": cells,
         "metadata": {
@@ -32,8 +61,31 @@ def write(name, cells):
         "nbformat_minor": 5,
     }
     p = NB_DIR / name
-    p.write_text(json.dumps(nb, indent=1))
+    text = json.dumps(nb, indent=1)
+    assert "YOUR_GITHUB_USERNAME" not in text, f"REPO_URL placeholder left in {name}"
+    p.write_text(text)
     print("wrote", p)
+
+    # Path B: per-kernel push directory with metadata
+    slug, title = KERNELS[name]
+    kdir = REPO_ROOT / "kaggle_push" / slug
+    kdir.mkdir(parents=True, exist_ok=True)
+    (kdir / name).write_text(text)
+    meta = {
+        "id": f"{KAGGLE_USER}/{slug}",
+        "title": title,
+        "code_file": name,
+        "kernel_type": "notebook",
+        "language": "python",
+        "is_private": True,
+        "enable_gpu": True,
+        "enable_internet": True,
+        "dataset_sources": DATASET_SOURCES,
+        "competition_sources": [],
+        "kernel_sources": [],
+    }
+    (kdir / "kernel-metadata.json").write_text(json.dumps(meta, indent=2) + "\n")
+    print("wrote", kdir / name, "+ kernel-metadata.json")
 
 
 # --------------------------------------------------------------------------
@@ -186,7 +238,17 @@ import selgate
 print("selgate", selgate.__version__)
 """
         ),
-        md("## 2. Choose config + run training"),
+        md(
+            """## 2. Choose config + run training
+
+Start with `configs/smoke.yaml` (30 iters, ~1 min), then `configs/gate_pixel.yaml`.
+
+Optional extras:
+- fewer iters for a session budget: `OVERRIDES = ["--set", "train.iters=50000"]`
+- warm-start / frozen-backbone ablation (weights dataset is auto-attached):
+  `OVERRIDES = ["--set", "model.backbone.pretrained=/kaggle/input/retinexformer-weights/LOL_v1.pth"]`
+"""
+        ),
         code(
             """
 CONFIG   = "configs/smoke.yaml"      # <-- start here (fast). Then: "configs/gate_pixel.yaml"

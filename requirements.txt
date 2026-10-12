@@ -1,0 +1,10 @@
+# Core dependencies (already present in Kaggle's notebook image except einops/pyyaml)
+torch>=2.0
+numpy>=1.23
+pyyaml>=6.0
+pillow>=9.0
+einops>=0.6
+
+# Optional — evaluation protocol extras (install on Kaggle with internet on):
+# lpips>=0.1.4        # LPIPS (standard protocol)
+# pyiqa>=0.1.9        # NIQE / BRISQUE / PI (cross-dataset no-reference metrics)

@@ -1,0 +1,48 @@
+# Fast end-to-end smoke run (~1-2 min on GPU, a few min on CPU).
+# Use this to verify the pipeline on Kaggle BEFORE launching the real run.
+name: smoke
+seed: 0
+
+data:
+  root: null
+  split_file: null
+  val_fraction: 0.05
+  split_seed: 0
+  crop_size: 64
+  batch_size: 4
+  num_workers: 0
+  augment: true
+
+model:
+  backbone:
+    n_feat: 40
+    stage: 1
+    num_blocks: [1, 2, 2]
+    pretrained: null
+  gate:
+    enabled: true
+    granularity: pixel
+    width: 32
+    depth: 4
+    illum: max
+    stride: 8
+  freeze_backbone: false
+
+train:
+  iters: 30
+  lr: 2.0e-4
+  lr_min: 1.0e-6
+  amp: true
+  grad_clip: 1.0
+  log_every: 10
+  val_every: 30
+  max_val_images: 4
+  out_dir: null
+  device: null
+
+loss:
+  ssim_weight: 0.2
+  tv_lambda: 0.01
+  illum_lambda: 0.1
+  illum_mode: bce
+  gate_illum_mode: max

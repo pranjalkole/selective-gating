@@ -1,0 +1,24 @@
+# data & outputs (never committed)
+data/*
+!data/README.md
+runs/
+results/
+*.pth
+*.pt
+*.ckpt
+*.png
+*.jpg
+*.jpeg
+*.csv
+
+# python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# vendored repo's git metadata stays, but ignore its local artifacts
+third_party/Retinexformer/**/__pycache__/

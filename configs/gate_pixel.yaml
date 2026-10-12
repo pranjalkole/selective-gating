@@ -1,0 +1,47 @@
+# Default model: pixel-level selective gate, full objective.
+name: gate_pixel
+seed: 0
+
+data:
+  root: null
+  split_file: null
+  val_fraction: 0.05
+  split_seed: 0
+  crop_size: 128
+  batch_size: 8
+  num_workers: 2
+  augment: true
+
+model:
+  backbone:
+    n_feat: 40
+    stage: 1
+    num_blocks: [1, 2, 2]
+    pretrained: null
+  gate:
+    enabled: true
+    granularity: pixel    # per-pixel g (default)
+    width: 32             # ~20K params total at depth 4
+    depth: 4
+    illum: max            # L(x) = per-pixel RGB max (alternatives: luma, luma_blur)
+    stride: 8             # used only by granularity=patch
+  freeze_backbone: false
+
+train:
+  iters: 150000
+  lr: 2.0e-4
+  lr_min: 1.0e-6
+  amp: true
+  grad_clip: 1.0
+  log_every: 500
+  val_every: 5000
+  max_val_images: null
+  out_dir: null
+  device: null
+
+loss:
+  ssim_weight: 0.2        # L1 + 0.2·(1−SSIM)
+  tv_lambda: 0.01         # λ_s
+  illum_lambda: 0.1       # λ_i
+  illum_mode: bce         # prior: BCE(g_logits, 1−L(x))  (alternative: corr)
+  gate_illum_mode: max

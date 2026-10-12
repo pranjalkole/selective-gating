@@ -25,6 +25,44 @@ KERNELS = {
     "02_evaluate.ipynb": ("selgate-02-evaluate", "selgate-02-evaluate"),
 }
 
+# Shared first-cell logic: private-repo clone via a GITHUB_TOKEN Kaggle secret.
+# The token is only ever in transient argv; .git/config is sanitized because
+# kernel outputs (/kaggle/working) are saved to the account.
+CLONE_CELL = """
+REPO_URL = "https://github.com/pranjalkole/selective-gating.git"   # private repo
+BRANCH   = "master"
+
+import os, subprocess, sys, shutil
+from pathlib import Path
+
+def _github_token():
+    \"\"\"Private repo: read GITHUB_TOKEN from a Kaggle secret (right pane -> Secrets).\"\"\"
+    tok = os.environ.get("GITHUB_TOKEN")
+    if tok:
+        return tok
+    try:
+        from kaggle_secrets import UserSecretsClient
+        return UserSecretsClient().get_secret("GITHUB_TOKEN")
+    except Exception:
+        return None
+
+token = _github_token()
+print("clone auth:", "GITHUB_TOKEN secret" if token else "anonymous (public repo)")
+clone_url = REPO_URL.replace("https://", f"https://oauth2:{token}@") if token else REPO_URL
+
+repo = Path("/kaggle/working/selective-gating")
+if repo.exists():
+    if subprocess.run(["git", "-C", str(repo), "pull", clone_url, BRANCH]).returncode != 0:
+        print("pull failed -> fresh clone")
+        shutil.rmtree(repo)
+if not repo.exists():
+    subprocess.run(["git", "clone", "--depth", "1", "-b", BRANCH, clone_url, str(repo)], check=True)
+    # strip credentials from .git/config — kernel outputs are saved!
+    subprocess.run(["git", "-C", str(repo), "remote", "set-url", "origin", REPO_URL], check=True)
+
+print("repo at:", repo)
+"""
+
 
 def md(src):
     return {"cell_type": "markdown", "metadata": {}, "source": src.strip("\n").splitlines(keepends=True)}
@@ -82,7 +120,10 @@ def write(name, cells):
         "enable_internet": True,
         "dataset_sources": DATASET_SOURCES,
         "competition_sources": [],
-        "kernel_sources": [],
+        # 02 imports 01's output (checkpoints) so it can run in a fresh session
+        "kernel_sources": (
+            [f"{KAGGLE_USER}/selgate-01-train"] if name == "02_evaluate.ipynb" else []
+        ),
     }
     (kdir / "kernel-metadata.json").write_text(json.dumps(meta, indent=2) + "\n")
     print("wrote", kdir / name, "+ kernel-metadata.json")
@@ -109,25 +150,16 @@ Run the cells **top to bottom**. If any cell fails, stop and fix before
 running `01_train.ipynb`.
 """
         ),
-        md("## 1. Repo location — edit `REPO_URL` to match your GitHub clone URL"),
-        code(
-            """
-REPO_URL = "https://github.com/YOUR_GITHUB_USERNAME/selective-gating.git"  # <-- EDIT ME
-BRANCH   = "main"
+        md(
+            """## 1. Clone the repo (private → authenticates with your `GITHUB_TOKEN` secret)
 
-import os, subprocess, sys
-from pathlib import Path
-
-repo = Path("/kaggle/working/selective-gating")
-if repo.exists():
-    print("repo already present, pulling latest...")
-    subprocess.run(["git", "-C", str(repo), "pull", "origin", BRANCH], check=True)
-else:
-    subprocess.run(["git", "clone", "--depth", "1", "-b", BRANCH, REPO_URL, str(repo)], check=True)
-
-print("repo at:", repo)
+**One-time setup:** in this notebook's right-hand pane open **Secrets → Add
+Secret**, name it `GITHUB_TOKEN`, value = a GitHub PAT with *Contents: Read &
+write* on `pranjalkole/selective-gating`. Without the secret the clone is
+anonymous and will fail (the repo is private).
 """
         ),
+        code(CLONE_CELL),
         md("## 2. Install deps + make `selgate` importable (`/kaggle/input` is read-only, so everything runs from `/kaggle/working`)"),
         code(
             """
@@ -215,21 +247,9 @@ Checkpoints and logs land in `/kaggle/working/runs/<name>/` — they are saved a
 `kaggle kernels output <slug>`).
 """
         ),
-        md("## 1. Environment (same as 00 — keep `REPO_URL` in sync)"),
+        md("## 1. Environment (clone + install — same as 00, needs the `GITHUB_TOKEN` secret)"),
         code(
-            """
-REPO_URL = "https://github.com/YOUR_GITHUB_USERNAME/selective-gating.git"  # <-- EDIT ME
-BRANCH   = "main"
-
-import os, subprocess, sys
-from pathlib import Path
-
-repo = Path("/kaggle/working/selective-gating")
-if repo.exists():
-    subprocess.run(["git", "-C", str(repo), "pull", "origin", BRANCH], check=True)
-else:
-    subprocess.run(["git", "clone", "--depth", "1", "-b", BRANCH, REPO_URL, str(repo)], check=True)
-
+            CLONE_CELL + """
 src = repo / "src"
 os.environ["PYTHONPATH"] = f"{src}:{os.environ.get('PYTHONPATH', '')}"
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", str(repo / "requirements.txt")], check=True)
@@ -336,26 +356,19 @@ Runs on the LOL-v1 **test-15** (never used for tuning):
 | 3. Naturalness | LOL-v1 | LOE |
 | 4. Cross-dataset (optional) | LIME / NPE / DICM | NIQE / BRISQUE / PI |
 
-**Prerequisites:** `00` + `01` have run in this session (repo + checkpoint in
-`/kaggle/working`), or attach a previous run's output as a dataset and point
-`CKPT` at it.
+**Prerequisites:** `01` has run at least once — its output (checkpoints) is
+imported automatically via `kernel_sources`, so this works in a fresh session.
 """
         ),
-        md("## 1. Environment"),
+        md(
+            """## 1. Environment (clone + install — same as 00, needs the `GITHUB_TOKEN` secret)
+
+`01`'s output (checkpoints) is auto-imported as an input via `kernel_sources`
+in `kernel-metadata.json`, so this kernel can run in a fresh session.
+"""
+        ),
         code(
-            """
-REPO_URL = "https://github.com/YOUR_GITHUB_USERNAME/selective-gating.git"  # <-- EDIT ME
-BRANCH   = "main"
-
-import os, subprocess, sys
-from pathlib import Path
-
-repo = Path("/kaggle/working/selective-gating")
-if repo.exists():
-    subprocess.run(["git", "-C", str(repo), "pull", "origin", BRANCH], check=True)
-else:
-    subprocess.run(["git", "clone", "--depth", "1", "-b", BRANCH, REPO_URL, str(repo)], check=True)
-
+            CLONE_CELL + """
 os.environ["PYTHONPATH"] = f"{repo / 'src'}:{os.environ.get('PYTHONPATH', '')}"
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", str(repo / "requirements.txt")], check=True)
 
@@ -363,15 +376,16 @@ import torch
 print("cuda:", torch.cuda.is_available())
 """
         ),
-        md("## 2. Locate config + checkpoint"),
+        md("## 2. Locate config + checkpoint (searches /kaggle/working and imported kernel outputs)"),
         code(
             """
 CONFIG = "configs/gate_pixel.yaml"   # <-- must match the run you trained in 01
 RUN_NAME = Path(CONFIG).stem
 
-candidates = sorted(Path("/kaggle/working").rglob("best.pt"))
+candidates = sorted(set(Path("/kaggle/working").rglob("best.pt"))
+                    | set(Path("/kaggle/input").rglob("best.pt")))
 CKPT = next((p for p in candidates if RUN_NAME in str(p)), candidates[-1] if candidates else None)
-assert CKPT is not None, "no best.pt found — run 01_train first (or attach its output)"
+assert CKPT is not None, "no best.pt found — run 01_train first (its output is imported here)"
 print("using checkpoint:", CKPT)
 
 OUT = repo / "results" / RUN_NAME / "test"

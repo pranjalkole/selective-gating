@@ -12,5 +12,7 @@
     "zukniz/retinexformer-weights"
   ],
   "competition_sources": [],
-  "kernel_sources": []
+  "kernel_sources": [
+    "pkbbanzik/selgate-01-train"
+  ]
 }

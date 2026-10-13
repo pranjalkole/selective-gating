@@ -303,6 +303,14 @@ CONFIG   = {config!r}
 OVERRIDES = {overrides}
 
 cmd = [sys.executable, str(repo / "scripts" / "train.py"), "--config", str(repo / CONFIG), *OVERRIDES]
+# auto-resume: if a previous session was killed at the timeout, last.pt is in
+# /kaggle/working (persisted notebook output) and training continues from it
+from selgate.config import load_config
+RUN_NAME = load_config(repo / CONFIG).get_path("name")   # yaml name, not the file stem
+_last = Path("/kaggle/working/runs") / RUN_NAME / "last.pt"
+if _last.exists():
+    cmd += ["--resume", str(_last)]
+    print("resuming from", _last)
 print(" ".join(cmd))
 ret = subprocess.run(cmd, cwd=repo).returncode
 assert ret == 0, f"training failed (exit {{ret}})"
@@ -313,8 +321,9 @@ assert ret == 0, f"training failed (exit {{ret}})"
             """
 import json
 from pathlib import Path
+from selgate.config import load_config
 
-name = Path(CONFIG).stem
+name = load_config(repo / CONFIG).get_path("name")   # yaml name, not the file stem
 run_dir = Path("/kaggle/working/runs") / name
 hist_path = run_dir / "history.json"
 if not hist_path.exists():

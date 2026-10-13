@@ -23,6 +23,7 @@ KERNELS = {
     "00_kaggle_setup.ipynb": ("selgate-00-setup", "selgate-00-setup"),
     "01_train.ipynb": ("selgate-01-train", "selgate-01-train"),
     "02_evaluate.ipynb": ("selgate-02-evaluate", "selgate-02-evaluate"),
+    "03_gate_analysis.ipynb": ("selgate-03-gate-analysis", "selgate-03-gate-analysis"),
 }
 
 # ---- experiment matrix ----------------------------------------------------
@@ -139,7 +140,12 @@ def write(name, cells):
     save_local(name, text)
     slug, title = KERNELS[name]
     # 02 imports 01's output (checkpoints) so it can run in a fresh session
-    srcs = [f"{KAGGLE_USER}/selgate-01-train"] if name == "02_evaluate.ipynb" else []
+    if name == "02_evaluate.ipynb":
+        srcs = [f"{KAGGLE_USER}/selgate-01-train"]
+    elif name == "03_gate_analysis.ipynb":
+        srcs = [f"{KAGGLE_USER}/selgate-01-gate-pixel"]
+    else:
+        srcs = []
     save_kernel(slug, title, name, text, srcs)
 
 
@@ -538,3 +544,180 @@ for _suffix, _cfg in RUNS:
     save_kernel(_slug, _slug, "02_evaluate.ipynb",
                 render(eval_cells(_cfg))[1],
                 kernel_sources=[f"{KAGGLE_USER}/selgate-01-{_suffix}"])
+
+
+# --------------------------------------------------------------------------
+def gate_cells(config):
+    """03 — gate interpretability: gate values inside the eval strata."""
+    return [
+        md(
+            f"""
+# 03 — Gate interpretability analysis (`{config}`)
+
+**Hypothesis:** if the gate is an interpretable illumination selector, its
+value should be *higher* (more enhanced output passes through) in
+brighter / over-exposed regions and *lower* in dark regions, within each
+test image's dark/mid/bright GT-luminance terciles (the same masks as the
+stratified protocol).
+
+Outputs (under `results/<run>/gate_analysis/`):
+- `gate_stats_by_stratum.csv` — per image × stratum gate statistics
+- scatter figure: stratum GT-luminance vs gate value (+ Pearson r)
+- gate heatmap overlays for the first 5 test images
+"""
+        ),
+        md("## 1. Environment (clone + install — same as 00, no secrets needed)"),
+        code(
+            CLONE_CELL + """
+sys.path.insert(0, str(repo / "src"))   # PYTHONPATH only affects child processes, not this kernel
+os.environ["PYTHONPATH"] = f"{repo / 'src'}:{os.environ.get('PYTHONPATH', '')}"
+subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", str(repo / "requirements.txt")], check=True)
+
+import torch
+print("cuda:", torch.cuda.is_available())
+"""
+        ),
+        md("## 2. Load model + locate test-15"),
+        code(
+            f"""
+CONFIG = {config!r}
+RUN_NAME = Path(CONFIG).stem
+
+candidates = sorted(set(Path("/kaggle/working").rglob("best.pt"))
+                    | set(Path("/kaggle/input").rglob("best.pt")))
+matches = [p for p in candidates if RUN_NAME in str(p)]
+if matches:
+    CKPT = matches[0]
+else:
+    assert len(candidates) == 1, "ambiguous checkpoint selection: " + repr(candidates)
+    CKPT = candidates[0]
+print("using checkpoint:", CKPT)
+
+import csv
+import numpy as np
+from PIL import Image
+from selgate.config import load_config
+from selgate.train import load_model_from_checkpoint
+from selgate.paths import find_lol_root
+from selgate.data import detect_layout
+from selgate.eval.stratified import luminance, tercile_masks, STRATA
+
+cfg = load_config(repo / CONFIG)
+model = load_model_from_checkpoint(CKPT, cfg)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.to(device).eval()
+print("model on", device, "| gate:", type(model.gate).__name__ if model.gate else None)
+
+root = find_lol_root(); layout = detect_layout(root)
+low_dir, high_dir = root / layout[2], root / layout[3]
+print("low:", low_dir)
+print("high:", high_dir)
+"""
+        ),
+        md("## 3. Per-image gate statistics inside the eval strata"),
+        code(
+            """
+import torch.nn.functional as F
+
+def load01(p):
+    return np.asarray(Image.open(p).convert("RGB")).astype(np.float64) / 255.0
+
+def find_low(name, d):
+    p = d / name
+    if p.exists():
+        return p
+    return next((d / (Path(name).stem + e) for e in (".png", ".jpg", ".jpeg")
+                 if (d / (Path(name).stem + e)).exists()), None)
+
+rows, gate_maps, samples = [], {}, {}
+for hp in sorted(high_dir.iterdir()):
+    if hp.suffix.lower() not in (".png", ".jpg", ".jpeg", ".bmp"):
+        continue
+    lp = find_low(hp.name, low_dir)
+    if lp is None:
+        print("WARNING: no low-light pair for", hp.name); continue
+
+    gt = load01(hp); lq = load01(lp)
+    x = torch.from_numpy(lq).float().permute(2, 0, 1)[None].to(device)
+    with torch.no_grad():
+        g = model(x)["gate"][0, 0]                    # (H', W')
+    if tuple(g.shape) != tuple(x.shape[-2:]):         # patch/global granularity
+        g = F.interpolate(g[None, None], size=x.shape[-2:], mode="bilinear")[0, 0]
+    g = g.cpu().numpy()
+    gate_maps[hp.name] = g
+    if len(samples) < 5:
+        samples[hp.name] = (lq, g)
+
+    lum = luminance(gt)
+    for s in (*STRATA, "overall"):
+        m = np.ones_like(lum, dtype=bool) if s == "overall" else tercile_masks(lum)[s]
+        rows.append(dict(image=hp.name, stratum=s, n_pixels=int(m.sum()),
+                         gt_lum_mean=float(lum[m].mean()),
+                         gate_mean=float(g[m].mean()), gate_std=float(g[m].std()),
+                         frac_open=float((g[m] > 0.9).mean()),
+                         frac_closed=float((g[m] < 0.1).mean())))
+    print(hp.name, {s: round(rows[-4 + i]["gate_mean"], 3) for i, s in enumerate(STRATA)})
+
+OUT3 = repo / "results" / RUN_NAME / "gate_analysis"
+OUT3.mkdir(parents=True, exist_ok=True)
+with open(OUT3 / "gate_stats_by_stratum.csv", "w", newline="") as f:
+    w = csv.DictWriter(f, fieldnames=list(rows[0].keys())); w.writeheader(); w.writerows(rows)
+print("wrote", OUT3 / "gate_stats_by_stratum.csv", f"({len(rows)} rows)")
+"""
+        ),
+        md("## 4. Aggregate: does the gate track region brightness?"),
+        code(
+            """
+import matplotlib.pyplot as plt
+
+print(f"{'stratum':>8} | {'gate_mean':>9} | {'gate_std':>8} | {'frac_open':>9} | {'frac_closed':>11} | {'gt_lum':>7}")
+print("-" * 70)
+for s in (*STRATA, "overall"):
+    rs = [r for r in rows if r["stratum"] == s]
+    print(f"{s:>8} | {np.mean([r['gate_mean'] for r in rs]):>9.3f} | "
+          f"{np.mean([r['gate_std'] for r in rs]):>8.3f} | "
+          f"{np.mean([r['frac_open'] for r in rs]):>9.3f} | "
+          f"{np.mean([r['frac_closed'] for r in rs]):>11.3f} | "
+          f"{np.mean([r['gt_lum_mean'] for r in rs]):>7.3f}")
+
+sel = [r for r in rows if r["stratum"] != "overall"]
+pts = np.array([[r["gt_lum_mean"], r["gate_mean"]] for r in sel])
+r = float(np.corrcoef(pts[:, 0], pts[:, 1])[0, 1])
+print(f"Pearson r (stratum GT luminance vs gate value) = {r:.3f}   [n={len(sel)} image-stratum points]")
+
+fig, ax = plt.subplots(figsize=(5.5, 4.5))
+for s, mk in zip(STRATA, ("o", "s", "^")):
+    sub = [x for x in sel if x["stratum"] == s]
+    ax.scatter([x["gt_lum_mean"] for x in sub], [x["gate_mean"] for x in sub],
+               marker=mk, label=s, alpha=0.75)
+ax.set_xlabel("stratum GT luminance (mean)"); ax.set_ylabel("gate value (mean)")
+ax.set_title(f"gate vs region brightness — r={r:.3f}"); ax.legend()
+plt.tight_layout(); plt.show()
+"""
+        ),
+        md("## 5. Gate heatmaps: input | gate | output"),
+        code(
+            """
+pred_dir = repo / "results" / RUN_NAME / "test" / "predictions"
+names = sorted(samples)
+fig, axes = plt.subplots(3, len(names), figsize=(4.2 * len(names), 12))
+for i, nm in enumerate(names):
+    lq, g = samples[nm]
+    axes[0][i].imshow(lq); axes[0][i].set_title(f"input: {nm}" if i == 0 else nm)
+    im = axes[1][i].imshow(g, cmap="viridis", vmin=0, vmax=1)
+    axes[1][i].set_title("gate g" if i == 0 else "")
+    plt.colorbar(im, ax=axes[1][i], fraction=0.046)
+    out_p = pred_dir / nm
+    if out_p.exists():
+        axes[2][i].imshow(np.asarray(Image.open(out_p).convert("RGB")))
+    axes[2][i].set_title("output" if i == 0 else "")
+    for a in (axes[0][i], axes[1][i], axes[2][i]):
+        a.axis("off")
+plt.tight_layout(); plt.show()
+"""
+        ),
+    ]
+
+
+# template notebook + the analysis kernel (targets the headline gate model)
+write("03_gate_analysis.ipynb", gate_cells("configs/gate_pixel.yaml"))

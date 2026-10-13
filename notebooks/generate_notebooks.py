@@ -18,12 +18,32 @@ DATASET_SOURCES = [
     "soumikrakshit/lol-dataset",        # LOL-v1: lol_dataset/{our485,eval15}/{low,high}
     "zukniz/retinexformer-weights",     # optional: official-style LOL_v1.pth backbone weights
 ]
-# notebook filename -> (kernel slug, kernel title)
+# notebook filename -> (kernel slug, kernel title) for the 3 original kernels
 KERNELS = {
     "00_kaggle_setup.ipynb": ("selgate-00-setup", "selgate-00-setup"),
     "01_train.ipynb": ("selgate-01-train", "selgate-01-train"),
     "02_evaluate.ipynb": ("selgate-02-evaluate", "selgate-02-evaluate"),
 }
+
+# ---- experiment matrix ----------------------------------------------------
+# Per-run kernels: one train + one eval kernel per config, eval imports its
+# OWN train kernel's output via kernel_sources. Every run uses the same iter
+# budget so comparisons are apples-to-apples (cosine schedule reshapes).
+TRAIN_ITERS = 50000
+RUNS = [
+    # wave 1 — headline pair (push these first, both fill the 2 GPU slots)
+    ("gate-pixel", "configs/gate_pixel.yaml"),
+    ("baseline", "configs/baseline.yaml"),
+    # wave 2 — gate granularity ablation
+    ("gran-global", "configs/gate_global.yaml"),
+    ("gran-patch", "configs/gate_patch.yaml"),
+    # wave 3 — model/loss ablations
+    ("frozen", "configs/ablations/frozen_backbone.yaml"),
+    ("noillum", "configs/ablations/no_illum_prior.yaml"),
+    # wave 4 — loss-weight sweeps
+    ("illum003", "configs/ablations/sweep_illum_003.yaml"),
+    ("tv005", "configs/ablations/sweep_tv_005.yaml"),
+]
 
 # Shared first-cell logic: plain anonymous clone (repo is public).
 CLONE_CELL = """
@@ -59,7 +79,8 @@ def code(src):
     }
 
 
-def write(name, cells):
+def render(cells):
+    """Cells -> (nb dict, notebook JSON text) with the real clone URL baked in."""
     # bake the real clone URL into the notebooks (Path B: no manual editing)
     for c in cells:
         if c["cell_type"] == "code":
@@ -79,14 +100,19 @@ def write(name, cells):
         "nbformat": 4,
         "nbformat_minor": 5,
     }
-    p = NB_DIR / name
     text = json.dumps(nb, indent=1)
-    assert "YOUR_GITHUB_USERNAME" not in text, f"REPO_URL placeholder left in {name}"
+    assert "YOUR_GITHUB_USERNAME" not in text, "REPO_URL placeholder left in notebook"
+    return nb, text
+
+
+def save_local(name, text):
+    p = NB_DIR / name
     p.write_text(text)
     print("wrote", p)
 
-    # Path B: per-kernel push directory with metadata
-    slug, title = KERNELS[name]
+
+def save_kernel(slug, title, name, text, kernel_sources=()):
+    """Path B: per-kernel push directory with metadata."""
     kdir = REPO_ROOT / "kaggle_push" / slug
     kdir.mkdir(parents=True, exist_ok=True)
     (kdir / name).write_text(text)
@@ -101,13 +127,20 @@ def write(name, cells):
         "enable_internet": True,
         "dataset_sources": DATASET_SOURCES,
         "competition_sources": [],
-        # 02 imports 01's output (checkpoints) so it can run in a fresh session
-        "kernel_sources": (
-            [f"{KAGGLE_USER}/selgate-01-train"] if name == "02_evaluate.ipynb" else []
-        ),
+        "kernel_sources": list(kernel_sources),
     }
     (kdir / "kernel-metadata.json").write_text(json.dumps(meta, indent=2) + "\n")
     print("wrote", kdir / name, "+ kernel-metadata.json")
+
+
+def write(name, cells):
+    """Original 3 kernels: local notebook + push dir."""
+    _, text = render(cells)
+    save_local(name, text)
+    slug, title = KERNELS[name]
+    # 02 imports 01's output (checkpoints) so it can run in a fresh session
+    srcs = [f"{KAGGLE_USER}/selgate-01-train"] if name == "02_evaluate.ipynb" else []
+    save_kernel(slug, title, name, text, srcs)
 
 
 # --------------------------------------------------------------------------
@@ -220,15 +253,17 @@ print("\\nSETUP OK — next: run 01_train.ipynb")
 )
 
 # --------------------------------------------------------------------------
-write(
-    "01_train.ipynb",
-    [
+def train_cells(config, iters=None):
+    overrides = f'["--set", "train.iters={iters}"]' if iters else "[]"
+    return [
         md(
-            """
+            f"""
 # 01 — Train Retinexformer + selective gate
 
 **Run `00_kaggle_setup.ipynb` first** (this notebook re-creates the environment
 in its first cell so it can also run standalone).
+
+This kernel trains **`{config}`** (budget: {iters if iters else "config default"} iters).
 
 1. Start with `configs/smoke.yaml` (~1 min) to verify the whole pipeline.
 2. Then switch to `configs/gate_pixel.yaml` (the real run: `train.iters: 150000`,
@@ -253,25 +288,24 @@ print("selgate", selgate.__version__)
 """
         ),
         md(
-            """## 2. Choose config + run training
+            f"""## 2. Config + run training (`{config}`)
 
-Start with `configs/smoke.yaml` (30 iters, ~1 min), then `configs/gate_pixel.yaml`.
+Override `CONFIG` for other runs, or use the template `01_train.ipynb`.
 
 Optional extras:
-- fewer iters for a session budget: `OVERRIDES = ["--set", "train.iters=50000"]`
 - warm-start / frozen-backbone ablation (weights dataset is auto-attached):
-  `OVERRIDES = ["--set", "model.backbone.pretrained=/kaggle/input/retinexformer-weights/LOL_v1.pth"]`
+  `OVERRIDES += ["--set", "model.backbone.pretrained=/kaggle/input/retinexformer-weights/LOL_v1.pth"]`
 """
         ),
         code(
-            """
-CONFIG   = "configs/smoke.yaml"      # <-- start here (fast). Then: "configs/gate_pixel.yaml"
-OVERRIDES = []                        # e.g. ["--set", "train.iters=50000"]
+            f"""
+CONFIG   = {config!r}
+OVERRIDES = {overrides}
 
 cmd = [sys.executable, str(repo / "scripts" / "train.py"), "--config", str(repo / CONFIG), *OVERRIDES]
 print(" ".join(cmd))
 ret = subprocess.run(cmd, cwd=repo).returncode
-assert ret == 0, f"training failed (exit {ret})"
+assert ret == 0, f"training failed (exit {{ret}})"
 """
         ),
         md("## 3. Training curves + gate monitor"),
@@ -281,8 +315,6 @@ import json
 from pathlib import Path
 
 name = Path(CONFIG).stem
-if name == "smoke":
-    name = "smoke"
 run_dir = Path("/kaggle/working/runs") / name
 hist_path = run_dir / "history.json"
 if not hist_path.exists():
@@ -330,18 +362,26 @@ Then run `02_evaluate.ipynb` (either in the same Kaggle session or a new one
 with the checkpoint attached as a dataset).
 """
         ),
-    ],
-)
+    ]
+
+
+# template notebook (Path A users pick a config interactively)
+write("01_train.ipynb", train_cells("configs/smoke.yaml"))
+
+# per-run train kernels (Path B experiment matrix)
+for _suffix, _cfg in RUNS:
+    _slug = f"selgate-01-{_suffix}"
+    save_kernel(_slug, _slug, "01_train.ipynb",
+                render(train_cells(_cfg, TRAIN_ITERS))[1])
 
 # --------------------------------------------------------------------------
-write(
-    "02_evaluate.ipynb",
-    [
+def eval_cells(config):
+    return [
         md(
-            """
+            f"""
 # 02 — Evaluation: standard + **region-stratified** protocol
 
-Runs on the LOL-v1 **test-15** (never used for tuning):
+Runs on the LOL-v1 **test-15** (never used for tuning), config `{config}`:
 
 | Level | What | Metrics |
 |---|---|---|
@@ -350,7 +390,7 @@ Runs on the LOL-v1 **test-15** (never used for tuning):
 | 3. Naturalness | LOL-v1 | LOE |
 | 4. Cross-dataset (optional) | LIME / NPE / DICM | NIQE / BRISQUE / PI |
 
-**Prerequisites:** `01` has run at least once — its output (checkpoints) is
+**Prerequisites:** the matching `01` kernel has run — its output (checkpoints) is
 imported automatically via `kernel_sources`, so this works in a fresh session.
 """
         ),
@@ -373,14 +413,22 @@ print("cuda:", torch.cuda.is_available())
         ),
         md("## 2. Locate config + checkpoint (searches /kaggle/working and imported kernel outputs)"),
         code(
-            """
-CONFIG = "configs/gate_pixel.yaml"   # <-- must match the run you trained in 01
+            f"""
+CONFIG = {config!r}
 RUN_NAME = Path(CONFIG).stem
 
 candidates = sorted(set(Path("/kaggle/working").rglob("best.pt"))
                     | set(Path("/kaggle/input").rglob("best.pt")))
-CKPT = next((p for p in candidates if RUN_NAME in str(p)), candidates[-1] if candidates else None)
-assert CKPT is not None, "no best.pt found — run 01_train first (its output is imported here)"
+matches = [p for p in candidates if RUN_NAME in str(p)]
+if matches:
+    CKPT = matches[0]
+else:
+    # run-name stem can differ slightly from the yaml's internal name (e.g.
+    # sweep_illum_003 vs ablation_sweep_illum003) — only fall back to a
+    # lone candidate, never silently pick among several.
+    assert len(candidates) == 1, "ambiguous checkpoint selection: " + repr(candidates)
+    CKPT = candidates[0]
+assert CKPT is not None, "no best.pt found — run the matching 01 kernel first"
 print("using checkpoint:", CKPT)
 
 OUT = repo / "results" / RUN_NAME / "test"
@@ -468,5 +516,16 @@ Requires `pip install pyiqa` (internet ON) for NIQE/BRISQUE/PI; the enhancement
 step itself works without it.
 """
         ),
-    ],
-)
+    ]
+
+
+# template notebook (Path A users pick a config interactively)
+write("02_evaluate.ipynb", eval_cells("configs/gate_pixel.yaml"))
+
+# per-run eval kernels (Path B experiment matrix) — each imports ITS OWN
+# train kernel's output so checkpoint selection is unambiguous
+for _suffix, _cfg in RUNS:
+    _slug = f"selgate-02-{_suffix}"
+    save_kernel(_slug, _slug, "02_evaluate.ipynb",
+                render(eval_cells(_cfg))[1],
+                kernel_sources=[f"{KAGGLE_USER}/selgate-01-{_suffix}"])

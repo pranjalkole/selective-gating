@@ -1,0 +1,16 @@
+{
+  "id": "pkbbanzik/selgate-01-gran-patch",
+  "title": "selgate-01-gran-patch",
+  "code_file": "01_train.ipynb",
+  "kernel_type": "notebook",
+  "language": "python",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [
+    "soumikrakshit/lol-dataset",
+    "zukniz/retinexformer-weights"
+  ],
+  "competition_sources": [],
+  "kernel_sources": []
+}

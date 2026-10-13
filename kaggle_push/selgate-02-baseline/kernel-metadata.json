@@ -1,0 +1,18 @@
+{
+  "id": "pkbbanzik/selgate-02-baseline",
+  "title": "selgate-02-baseline",
+  "code_file": "02_evaluate.ipynb",
+  "kernel_type": "notebook",
+  "language": "python",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "dataset_sources": [
+    "soumikrakshit/lol-dataset",
+    "zukniz/retinexformer-weights"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [
+    "pkbbanzik/selgate-01-baseline"
+  ]
+}

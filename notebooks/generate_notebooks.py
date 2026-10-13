@@ -168,7 +168,16 @@ if torch.cuda.is_available():
 print("on kaggle:", is_kaggle())
 print("repo_root:", repo_root())
 _ki = Path("/kaggle/input")
-print("/kaggle/input:", sorted(p.name for p in _ki.iterdir()) if _ki.exists() else "(absent)")
+def _dirs(p, _d=0):
+    if _d > 3 or not p.is_dir():
+        return []
+    out = []
+    for c in sorted(p.iterdir()):
+        if c.is_dir():
+            out.append(str(c.relative_to(_ki)))
+            out += _dirs(c, _d + 1)
+    return out
+print("/kaggle/input dirs:", _dirs(_ki))
 
 lol = find_lol_root()
 print("LOL-v1 root:", lol)

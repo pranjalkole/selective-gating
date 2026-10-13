@@ -54,8 +54,12 @@ def _looks_like_lol_root(root: Path) -> bool:
     return any((root / m1 / m2).is_dir() for m1, m2 in _LOL_MARKERS)
 
 
-def _iter_dataset_dirs(base: Path, max_depth: int = 3) -> Iterable[Path]:
-    """Yield dataset directories under /kaggle/input up to max_depth."""
+def _iter_dataset_dirs(base: Path, max_depth: int = 6) -> Iterable[Path]:
+    """Yield dataset directories under /kaggle/input up to max_depth.
+
+    Depth 6 because Kaggle's mount layout nests: /kaggle/input (or
+    /kaggle/input/datasets/<owner>/<slug>) around the actual data root.
+    """
     if not base.is_dir():
         return
     yield base

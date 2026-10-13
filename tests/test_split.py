@@ -35,3 +35,29 @@ def test_existing_split_reused(fake_lol, tmp_path):
     assert out.stat().st_mtime == mtime
     with open(out) as f:
         assert "train" in json.load(f)
+
+
+# the canonical LOL-v1 eval15 filenames
+_CANONICAL_TEST15 = [
+    "1.png", "111.png", "146.png", "179.png", "22.png", "23.png", "493.png",
+    "547.png", "55.png", "665.png", "669.png", "748.png", "778.png",
+    "780.png", "79.png",
+]
+
+
+def test_committed_split_is_the_real_lol_v1_split():
+    """The committed split must be carved from the real 485+15 dataset.
+
+    Guards against committing a split generated from local smoke/fake data
+    (happened once: a 24-image fake split silently broke Kaggle training).
+    """
+    from selgate.paths import split_file
+
+    p = split_file()
+    assert p.exists(), "committed split file missing"
+    d = json.loads(p.read_text())
+    assert len(d["train"]) == 461, "committed split must cover the real our485"
+    assert len(d["val"]) == 24
+    assert sorted(d["test"]) == sorted(_CANONICAL_TEST15)
+    tv = set(d["train"]) | set(d["val"])
+    assert not tv & set(d["test"]), "TEST LEAKAGE!"

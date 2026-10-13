@@ -167,6 +167,8 @@ if torch.cuda.is_available():
     print("gpu:", torch.cuda.get_device_name(0))
 print("on kaggle:", is_kaggle())
 print("repo_root:", repo_root())
+_ki = Path("/kaggle/input")
+print("/kaggle/input:", sorted(p.name for p in _ki.iterdir()) if _ki.exists() else "(absent)")
 
 lol = find_lol_root()
 print("LOL-v1 root:", lol)

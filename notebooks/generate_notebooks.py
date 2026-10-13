@@ -145,6 +145,7 @@ anonymous clone works. If it is ever made private again, attach a
         code(
             """
 src = repo / "src"
+sys.path.insert(0, str(src))   # PYTHONPATH only affects child processes, not this kernel
 os.environ["PYTHONPATH"] = f"{src}:{os.environ.get('PYTHONPATH', '')}"
 
 # einops/pyyaml ship with the repo requirements; lpips+pyiqa are optional metric extras
@@ -232,6 +233,7 @@ Checkpoints and logs land in `/kaggle/working/runs/<name>/` — they are saved a
         code(
             CLONE_CELL + """
 src = repo / "src"
+sys.path.insert(0, str(src))   # PYTHONPATH only affects child processes, not this kernel
 os.environ["PYTHONPATH"] = f"{src}:{os.environ.get('PYTHONPATH', '')}"
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", str(repo / "requirements.txt")], check=True)
 
@@ -350,6 +352,7 @@ in `kernel-metadata.json`, so this kernel can run in a fresh session.
         ),
         code(
             CLONE_CELL + """
+sys.path.insert(0, str(repo / "src"))   # PYTHONPATH only affects child processes, not this kernel
 os.environ["PYTHONPATH"] = f"{repo / 'src'}:{os.environ.get('PYTHONPATH', '')}"
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-r", str(repo / "requirements.txt")], check=True)
 

@@ -98,6 +98,13 @@ other methods (drop predictions into a folder and call
 
 `./scripts/run_ablations.sh` runs them sequentially (GPU-days scale: ~1–2).
 
+## Results
+
+See **[RESULTS.md](RESULTS.md)** — LOL-v1 test-15, region-stratified protocol,
+one re-pushable Kaggle kernel per run. Headline so far (`gate_pixel`, 50k
+iters, T4): **22.43 dB / SSIM 0.840**, ΔE2000 8.6 overall; remaining rows in
+progress.
+
 ## References
 
 - Cai et al., *Retinexformer: One-stage Retinex-based Transformer for Low-light

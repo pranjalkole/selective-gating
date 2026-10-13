@@ -25,55 +25,21 @@ KERNELS = {
     "02_evaluate.ipynb": ("selgate-02-evaluate", "selgate-02-evaluate"),
 }
 
-# Shared first-cell logic: private-repo clone via a GITHUB_TOKEN Kaggle secret.
-# The token is only ever in transient argv; .git/config is sanitized because
-# kernel outputs (/kaggle/working) are saved to the account.
+# Shared first-cell logic: plain anonymous clone (repo is public).
 CLONE_CELL = """
-REPO_URL = "https://github.com/pranjalkole/selective-gating.git"   # private repo
+REPO_URL = "https://github.com/pranjalkole/selective-gating.git"   # public repo
 BRANCH   = "master"
 
 import os, subprocess, sys, shutil
 from pathlib import Path
 
-def _github_token():
-    \"\"\"Private repo: read GITHUB_TOKEN from a Kaggle secret (Add-ons -> Secrets).\"\"\"
-    tok = os.environ.get("GITHUB_TOKEN")
-    if tok:
-        print("token source: env")
-        return tok
-    errors = []
-    try:
-        from kaggle_secrets import UserSecretsClient
-        t = UserSecretsClient().get_secret("GITHUB_TOKEN")
-        print("token source: UserSecretsClient")
-        return t
-    except Exception as e:
-        errors.append(f"UserSecretsClient -> {type(e).__name__}: {e}")
-    try:
-        from kaggle_secrets import userdata
-        t = userdata.get("GITHUB_TOKEN")
-        print("token source: userdata")
-        return t
-    except Exception as e:
-        errors.append(f"userdata -> {type(e).__name__}: {e}")
-    print("NO GITHUB_TOKEN SECRET AVAILABLE (repo is private, clone will fail):")
-    for e in errors:
-        print("  -", e)
-    return None
-
-token = _github_token()
-print("clone auth:", "GITHUB_TOKEN secret" if token else "anonymous (public repo)")
-clone_url = REPO_URL.replace("https://", f"https://oauth2:{token}@") if token else REPO_URL
-
 repo = Path("/kaggle/working/selective-gating")
 if repo.exists():
-    if subprocess.run(["git", "-C", str(repo), "pull", clone_url, BRANCH]).returncode != 0:
+    if subprocess.run(["git", "-C", str(repo), "pull", REPO_URL, BRANCH]).returncode != 0:
         print("pull failed -> fresh clone")
         shutil.rmtree(repo)
 if not repo.exists():
-    subprocess.run(["git", "clone", "--depth", "1", "-b", BRANCH, clone_url, str(repo)], check=True)
-    # strip credentials from .git/config — kernel outputs are saved!
-    subprocess.run(["git", "-C", str(repo), "remote", "set-url", "origin", REPO_URL], check=True)
+    subprocess.run(["git", "clone", "--depth", "1", "-b", BRANCH, REPO_URL, str(repo)], check=True)
 
 print("repo at:", repo)
 """
@@ -166,12 +132,12 @@ running `01_train.ipynb`.
 """
         ),
         md(
-            """## 1. Clone the repo (private → authenticates with your `GITHUB_TOKEN` secret)
+            """## 1. Clone the repo (public — no secrets needed)
 
-**One-time setup:** in this notebook's right-hand pane open **Secrets → Add
-Secret**, name it `GITHUB_TOKEN`, value = a GitHub PAT with *Contents: Read &
-write* on `pranjalkole/selective-gating`. Without the secret the clone is
-anonymous and will fail (the repo is private).
+The repo (`github.com/pranjalkole/selective-gating`) is public, so a plain
+anonymous clone works. If it is ever made private again, attach a
+`GITHUB_TOKEN` secret (Add-ons → Secrets) and switch `clone_url` to the
+`oauth2:<token>@` form — see `KAGGLE.md`.
 """
         ),
         code(CLONE_CELL),
@@ -262,7 +228,7 @@ Checkpoints and logs land in `/kaggle/working/runs/<name>/` — they are saved a
 `kaggle kernels output <slug>`).
 """
         ),
-        md("## 1. Environment (clone + install — same as 00, needs the `GITHUB_TOKEN` secret)"),
+        md("## 1. Environment (clone + install — same as 00, no secrets needed)"),
         code(
             CLONE_CELL + """
 src = repo / "src"
@@ -376,7 +342,7 @@ imported automatically via `kernel_sources`, so this works in a fresh session.
 """
         ),
         md(
-            """## 1. Environment (clone + install — same as 00, needs the `GITHUB_TOKEN` secret)
+            """## 1. Environment (clone + install — same as 00, no secrets needed)
 
 `01`'s output (checkpoints) is auto-imported as an input via `kernel_sources`
 in `kernel-metadata.json`, so this kernel can run in a fresh session.

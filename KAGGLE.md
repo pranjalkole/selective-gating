@@ -15,8 +15,8 @@ All three end up in the same state: repo at `/kaggle/working/selective-gating`,
 
 ## 0. One-time prerequisites
 
-1. **Push this repo to GitHub** (public repo = simplest; for a private repo see
-   the "private repo" note in Path A step 3):
+1. **Push this repo to GitHub** (it is public, so notebooks can clone it
+   anonymously — no Kaggle secrets needed):
    ```bash
    cd selective-gating
    git add -A && git commit -m "selgate: initial implementation"
@@ -51,9 +51,6 @@ All three end up in the same state: repo at `/kaggle/working/selective-gating`,
 3. In the **right-hand Settings pane** set:
    - **Accelerator:** GPU (T4 / P100 / T4×2) — required for training
    - **Internet:** **On** — required for `git clone` + `pip install`
-   - **Secrets → Add Secret:** name `GITHUB_TOKEN`, value = a GitHub PAT with
-     *Contents: Read & write* on `pranjalkole/selective-gating` — **required,
-     the repo is private** (see the private-repo note below)
    - **Data:** the LOL dataset attaches automatically if you used the CLI
      metadata; otherwise attach `soumikrakshit/lol-dataset` manually
 4. Open `00_kaggle_setup.ipynb` — **no editing needed**, `REPO_URL` is baked
@@ -67,12 +64,13 @@ All three end up in the same state: repo at `/kaggle/working/selective-gating`,
 8. Run `02_evaluate.ipynb` → prints the standard table and the
    **region-stratified table** (dark/mid/bright PSNR + ΔE2000).
 
-> **Private repo (this repo is private):** every notebook's first cell reads a
-> Kaggle secret named `GITHUB_TOKEN` (env var, or `UserSecretsClient`) and
-> clones with `https://oauth2:<token>@github.com/...`. The token is stripped
-> from `.git/config` right after the clone because `/kaggle/working` is saved
-> as kernel output. Add the secret once per notebook via the editor's
-> **Secrets** panel before running.
+> **If you make the repo private again:** attach a Kaggle secret named
+> `GITHUB_TOKEN` (a GitHub PAT with *Contents: Read*) to each notebook via
+> **Add-ons → Secrets**, and change `clone_url` in the first cell to
+> `REPO_URL.replace("https://", f"https://oauth2:{token}@")` where
+> `token = UserSecretsClient().get_secret("GITHUB_TOKEN")`. Strip the token
+> from `.git/config` after cloning — `/kaggle/working` is saved as kernel
+> output.
 
 ---
 
@@ -99,10 +97,6 @@ Each `kernel-metadata.json` is pre-filled:
   changing `GH_USER` in the generator.
 
 Push from the repo root:
-
-**Before the first push:** add the `GITHUB_TOKEN` secret to each kernel once
-(open the kernel in the Kaggle editor → right pane → **Secrets → Add Secret**);
-without it the private-repo clone fails at runtime.
 
 ```bash
 kaggle kernels push -p kaggle_push/selgate-00-setup   # upload + start run
@@ -183,7 +177,7 @@ download via the Output pane in the UI, or `kaggle kernels output <slug>`.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `Repository not found` / `Could not resolve host` | Internet off | Settings → Internet: **On** |
-| `git clone` prompts for username / 401 | `GITHUB_TOKEN` secret missing (repo is private) | Add secret `GITHUB_TOKEN` to the kernel, re-run cell 1 |
+| `git clone` prompts for username / 401 | Repo made private again | Re-add the `GITHUB_TOKEN` secret (see the private-repo note above) or make the repo public |
 | `LOL-v1 not found` | Dataset not attached / nested root | Attach data; set `data.root` or `SELGATE_LOL_ROOT` to the dir containing `our485/` or `Train/` |
 | `ModuleNotFoundError: selgate` | PYTHONPATH cell not run | Run `00` cells 1–2 in this session (each notebook re-runs them) |
 | `PermissionError` under `/kaggle/input` | read-only mount | Work from `/kaggle/working` (the provided code already does) |

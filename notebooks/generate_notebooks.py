@@ -36,15 +36,30 @@ import os, subprocess, sys, shutil
 from pathlib import Path
 
 def _github_token():
-    \"\"\"Private repo: read GITHUB_TOKEN from a Kaggle secret (right pane -> Secrets).\"\"\"
+    \"\"\"Private repo: read GITHUB_TOKEN from a Kaggle secret (Add-ons -> Secrets).\"\"\"
     tok = os.environ.get("GITHUB_TOKEN")
     if tok:
+        print("token source: env")
         return tok
+    errors = []
     try:
         from kaggle_secrets import UserSecretsClient
-        return UserSecretsClient().get_secret("GITHUB_TOKEN")
-    except Exception:
-        return None
+        t = UserSecretsClient().get_secret("GITHUB_TOKEN")
+        print("token source: UserSecretsClient")
+        return t
+    except Exception as e:
+        errors.append(f"UserSecretsClient -> {type(e).__name__}: {e}")
+    try:
+        from kaggle_secrets import userdata
+        t = userdata.get("GITHUB_TOKEN")
+        print("token source: userdata")
+        return t
+    except Exception as e:
+        errors.append(f"userdata -> {type(e).__name__}: {e}")
+    print("NO GITHUB_TOKEN SECRET AVAILABLE (repo is private, clone will fail):")
+    for e in errors:
+        print("  -", e)
+    return None
 
 token = _github_token()
 print("clone auth:", "GITHUB_TOKEN secret" if token else "anonymous (public repo)")
